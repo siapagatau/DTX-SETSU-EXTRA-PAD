@@ -1,0 +1,62 @@
+name: Build Debug APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # android-actions/setup-android@v3 DIHAPUS: action ini coba download
+      # ulang SDK command-line tools versi baru dan macet nunggu konfirmasi lisensi.
+      # Runner ubuntu-latest sudah punya Android SDK terpasang bawaan (licenses
+      # sudah accepted) -> cukup pastikan sdkmanager-nya ada di PATH.
+      - name: Add Android SDK cmdline-tools to PATH
+        run: echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
+      # Sekarang install platform/build-tools 36 (Android 16), sesuai
+      # compileSdk/targetSdk yang sudah dinaikkan di app/build.gradle.kts.
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses > /dev/null || true
+
+      - name: Install NDK & CMake
+        run: sdkmanager --install "platforms;android-36" "build-tools;36.0.0" "ndk;26.1.10909125" "cmake;3.22.1"
+
+      # AGP 9.1.0 minimal butuh Gradle 9.2.1.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 9.3.1
+
+      # assembleDebug sekarang otomatis build KEDUA flavor (free & premium),
+      # bukan cuma 1 APK lagi - hasilnya app-free-debug.apk & app-premium-debug.apk
+      # di folder terpisah (lihat step upload di bawah).
+      - name: Build debug APK (free + premium)
+        run: gradle assembleDebug --stacktrace
+
+      # Diupload sebagai 2 artifact TERPISAH (bukan digabung 1 nama kayak dulu)
+      # biar gampang dibedain & didownload salah satu doang kalau cuma butuh
+      # satu versi. Path-nya ngikutin folder per-flavor yang dibikin Gradle:
+      # app/build/outputs/apk/<flavor>/debug/app-<flavor>-debug.apk
+      - name: Upload FREE APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-dtx-free-debug
+          path: app/build/outputs/apk/free/debug/app-free-debug.apk
+
+      - name: Upload PREMIUM APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-dtx-premium-debug
+          path: app/build/outputs/apk/premium/debug/app-premium-debug.apk
